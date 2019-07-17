@@ -23,6 +23,7 @@ https://github.com/shaoshengsong/MobileNetV3-SSD
 以 efficient_net_b0_ssd300_voc0712 为例说明是如何改造的
 
 其他的
+```
 EfficientNet-B1
 EfficientNet-B2
 EfficientNet-B3
@@ -30,6 +31,7 @@ EfficientNet-B4
 EfficientNet-B5
 EfficientNet-B6
 EfficientNet-B7
+```
 都可以按照此方法就行改造，改造后至于是否使用SSD的 其他变种就是另一码事了
 
 配置efficient_net_b0_ssd300_voc0712.yaml如下
