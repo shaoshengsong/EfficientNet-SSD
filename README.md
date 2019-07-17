@@ -2,21 +2,26 @@
 Object Detection using EfficientNet
 
 环境
+
 操作系统: Ubuntu18.04
+
 Python: 3.6
+
 PyTorch: 1.1.0
 
 
 论文 EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks
 
-为了实现将EfficientNet应用于目标检测，需要对其网络进行改造
-改造后的结果，起名字就是EfficientNet-SSDLite 或者 EfficientNet-SSD
+为了实现将EfficientNet应用于目标检测，需要对其网络进行改造,改造后的结果，起名字就是EfficientNet-SSDLite 或者 EfficientNet-SSD
 该代码也可以在CPU下运行
 
 还有一篇是改造MobileNetV3的，将MobileNetV3应用于目标检测
+
 https://github.com/shaoshengsong/MobileNetV3-SSD
 
+
 以 efficient_net_b0_ssd300_voc0712 为例说明是如何改造的
+
 其他的
 EfficientNet-B1
 EfficientNet-B2
@@ -28,7 +33,7 @@ EfficientNet-B7
 都可以按照此方法就行改造，改造后至于是否使用SSD的 其他变种就是另一码事了
 
 配置efficient_net_b0_ssd300_voc0712.yaml如下
-
+```
 MODEL:
   NUM_CLASSES: 21
   BOX_PREDICTOR: 'SSDLiteBoxPredictor'
@@ -48,9 +53,10 @@ SOLVER:
   LR: 1e-3
 
 OUTPUT_DIR: 'outputs/efficient_net_b0_ssd300_voc0712'
-
+```
 
 代码改造
+```
 efficientnet-b3的数据
 INDICES = {
     'efficientnet-b3': [7, 17, 25]
@@ -79,6 +85,7 @@ EXTRAS = {
 
     ]
 }
+```
 其他详细的改造见github
 
 
@@ -86,7 +93,7 @@ EXTRAS = {
 数据集的下载
 下载VOC数据集
 可以通过以下命令下载数据集
-
+```
 切换到项目的数据目录
 cd data
  下载2007年的训练数据
@@ -95,10 +102,10 @@ wget http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtrainval_06-Nov-2007.tar
 wget http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtest_06-Nov-2007.tar
  下载2012年的训练数据
 wget http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar
-
+```
 解压数据集
 下载完成之后，要解压数据集到当前目录
-
+```
 tar xvf VOCtest_06-Nov-2007.tar
 tar xvf VOCtrainval_06-Nov-2007.tar
 tar xvf VOCtrainval_11-May-2012.tar
@@ -134,12 +141,12 @@ COCO_ROOT
     |_ ...
     |_ <im-N-name>.jpg
 |__ ...
-
+```
 下载数据集之后唯一需要做的是更改数据集的路径，
 SSD/ssd/config/path_catlog.py
 
 改成自己数据集的路径
-
+```
 class DatasetCatalog:
     DATA_DIR = '/media/santiago/b/dataset/VOC'
 
@@ -154,3 +161,4 @@ https://github.com/lukemelas/EfficientNet-PyTorch
 
 High quality, fast, modular reference implementation of SSD in PyTorch
 https://github.com/lufficc/SSD
+```
