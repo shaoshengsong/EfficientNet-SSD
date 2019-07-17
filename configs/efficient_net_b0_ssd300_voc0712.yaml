@@ -1,0 +1,19 @@
+MODEL:
+  NUM_CLASSES: 21
+  BOX_PREDICTOR: 'SSDLiteBoxPredictor'
+  BACKBONE:
+    NAME: 'efficient_net-b0'
+    OUT_CHANNELS: (40, 112, 320, 256, 256, 256)
+INPUT:
+  IMAGE_SIZE: 300
+DATASETS:
+  TRAIN: ("voc_2007_trainval","voc_2012_trainval")
+  TEST: ("voc_2007_test", )
+SOLVER:
+  MAX_ITER: 160000
+  LR_STEPS: [105000, 135000]
+  GAMMA: 0.1
+  BATCH_SIZE: 2
+  LR: 1e-3
+
+OUTPUT_DIR: 'outputs/efficient_net_b0_ssd300_voc0712'

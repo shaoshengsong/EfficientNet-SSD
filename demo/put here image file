@@ -1,0 +1,172 @@
+def area_of(left_top,right_bottom):# (num_boxes,2),(num_boxes,2)
+    hw = torch.clamp(right_bottom-left_top,0.0) # (num_boxes,2)
+    # 这里做clip的原因是如果框不重叠的化，如果不clip算出来就是负值，有了clip就是0
+    return hw[...,0] * hw[...,1]
+
+def iou_of(boxes0,boxes1,eps = 1e-5):# (N,4) and (1,4) or (N,4)
+    # 注意这里其实boxes0和boxes1和size其实是不一样的，所以size较少的那个会broadcast到较大的那个然后在做max和min操作。
+    overlap_left_top = torch.max(boxes0[...,:2],boxes1[...:2])# 左上角点最远的
+    overlap_right_bottom = torch.min(boxes0[...,2:],boxes1[...,2:]) # 右下角点最近的
+    area0 = area_of(boxes0[...,:2],boxes0[...,2:]) # 左上角和右下角点计算面积
+    area1 = area_of(boxes1[...,:2],boxes1[...,2:]) # predict box的面积
+    overlap_area = area_of(overlap_left_top,over_right_bottom) # 并集面积
+    return overlap_area / (area0 + area1 - overlap_area + eps)
+    
+
+生成priorbox
+
+这里生成坐标的方法是真学到了，product构造映射。实际上featur map上每个点都是加了0.5作为中心，然后除以ratio，这里ratio一般和feature map 的size是不一样的，取决于网络设计，我这里用的刚好一样。ratio就是对应到原图有多少个滑窗。后面考虑了其他尺度的anchor。
+
+#有的注释是原来代码里的，有的英文注释是我加的。
+class PriorBox(nn.Module):
+    def __init__(self):
+        super(PriorBox, self).__init__()
+        self.image_size = 512
+        self.feature_maps = [16,8,4,2,1]
+        self.min_sizes = [30,60,111,162,213]
+        self.max_sizes = [60,111,162,213,512]
+        self.strides = [32,64,128,256,512]
+        self.aspect_ratios = [[2], [2, 3], [2, 3], [2], [2]]
+        self.clip = True
+
+    def forward(self):
+        """Generate SSD Prior Boxes.
+            It returns the center, height and width of the priors. The values are relative to the image size
+            Returns:
+                priors (num_priors, 4): The prior boxes represented as [[center_x, center_y, w, h]]. All the values
+                    are relative to the image size.
+        """
+        priors = []
+        for k, f in enumerate(self.feature_maps): # every size of feature map
+            scale = self.image_size / self.strides[k] # how many boxes (not anchor) in a row in raw img
+            # 512 / 32 = 16
+            for i, j in product(range(f), repeat=2): # xy generator in feature map
+                # unit center x,y
+                cx = (j + 0.5) / scale # see as blocks and xy in center of it 
+                cy = (i + 0.5) / scale # 15,15 -> 15.5,15.5 -> 15.5/16,15.5/16 which means the xy in center of feature map
+
+                # small sized square box
+                size = self.min_sizes[k] # min size
+                h = w = size / self.image_size # small size
+                priors.append([cx, cy, w, h]) # the small size one
+
+                # big sized square box
+                size = sqrt(self.min_sizes[k] * self.max_sizes[k]) # the same as small one
+                h = w = size / self.image_size
+                priors.append([cx, cy, w, h])
+
+                # change h/w ratio of the small sized box
+                # considering the w/ratio , w*ratio , h/ratio and h * ratio
+                size = self.min_sizes[k]
+                h = w = size / self.image_size
+                for ratio in self.aspect_ratios[k]:
+                    ratio = sqrt(ratio)
+                    priors.append([cx, cy, w * ratio, h / ratio])
+                    priors.append([cx, cy, w / ratio, h * ratio])
+
+        priors = torch.Tensor(priors)
+        if self.clip:
+            priors.clamp_(max=1, min=0)
+        return priors
+
+priorbox的分配
+
+很好的利用了broadcast机制，计算每个iou，然后得到target与所有prior重叠度最高的匹配，以及prior与target重叠度最高的匹配，然后通过阈值滤去。
+
+def assign_priors(gt_boxes, gt_labels, corner_form_priors,
+                  iou_threshold):
+    """Assign ground truth boxes and targets to priors.
+
+    Args:
+        gt_boxes (num_targets, 4): ground truth boxes.
+        gt_labels (num_targets): labels of targets.
+        priors (num_priors, 4): corner form priors
+    Returns:
+        boxes (num_priors, 4): real values for priors.
+        labels (num_priros): labels for priors.
+    """
+    # size: num_priors x num_targets
+    ious = iou_of(gt_boxes.unsqueeze(0), corner_form_priors.unsqueeze(1))
+    # size: num_priors
+    best_target_per_prior, best_target_per_prior_index = ious.max(1) # 每个prior的iou最大的值以及在target里的索引
+    # size: num_targets
+    best_prior_per_target, best_prior_per_target_index = ious.max(0) # 每个target与所有prior的iou最大值以及在priors里的索引
+
+    for target_index, prior_index in enumerate(best_prior_per_target_index):
+        best_target_per_prior_index[prior_index] = target_index # 让每个Prior对应iou最大的target (0,0,1,2,3)
+    # 2.0 is used to make sure every target has a prior assigned
+    best_target_per_prior.index_fill_(0, best_prior_per_target_index, 2) # dim = 0 ,value = 2,只要重叠的iou最大，就认为其重叠度是2
+    # size: num_priors
+    labels = gt_labels[best_target_per_prior_index] # num_priors，先按照iou最大分
+    labels[best_target_per_prior < iou_threshold] = 0  # the backgournd id，小于阈值的认为是背景，有的iou尽管最大但是其iou还是很小，所以也需要滤去
+    boxes = gt_boxes[best_target_per_prior_index] # 直接给box 
+    return boxes, labels
+
+hard_negative_mining
+
+通过给出mask考虑算哪些loss不算哪些loss，因为负样本实在太多了，所以这是一个方法。
+
+def hard_negative_mining(loss, labels, neg_pos_ratio):
+    """
+    It used to suppress the presence of a large number of negative prediction.
+    It works on image level not batch level.
+    For any example/image, it keeps all the positive predictions and
+     cut the number of negative predictions to make sure the ratio
+     between the negative examples and positive examples is no more
+     the given ratio for an image.
+
+    Args:
+        loss (N, num_priors): the loss for each example.
+        labels (N, num_priors): the labels.
+        neg_pos_ratio:  the ratio between the negative examples and positive examples.
+    """
+    pos_mask = labels > 0
+    num_pos = pos_mask.long().sum(dim=1, keepdim=True)
+    num_neg = num_pos * neg_pos_ratio
+
+    loss[pos_mask] = -math.inf
+    _, indexes = loss.sort(dim=1, descending=True)
+    _, orders = indexes.sort(dim=1)
+    neg_mask = orders < num_neg
+    return pos_mask | neg_mask
+
+Loss Function
+
+bbox用smotth L1 loss，交叉熵分类loss。
+
+class MultiBoxLoss(nn.Module):
+    def __init__(self, neg_pos_ratio):
+        """Implement SSD MultiBox Loss.
+
+        Basically, MultiBox loss combines classification loss
+         and Smooth L1 regression loss.
+        """
+        super(MultiBoxLoss, self).__init__()
+        self.neg_pos_ratio = neg_pos_ratio
+
+    def forward(self, confidence, predicted_locations, labels, gt_locations):
+        """Compute classification loss and smooth l1 loss.
+
+        Args:
+            confidence (batch_size, num_priors, num_classes): class predictions.
+            predicted_locations (batch_size, num_priors, 4): predicted locations.
+            labels (batch_size, num_priors): real labels of all the priors.
+            gt_locations (batch_size, num_priors, 4): real boxes corresponding all the priors.
+        """
+        num_classes = confidence.size(2)
+        with torch.no_grad():
+            # derived from cross_entropy=sum(log(p))
+            loss = -F.log_softmax(confidence, dim=2)[:, :, 0]
+            mask = box_utils.hard_negative_mining(loss, labels, self.neg_pos_ratio)
+
+        confidence = confidence[mask, :]
+        #print(confidence.view(-1, num_classes))
+        #print(labels[mask])
+        classification_loss = F.cross_entropy(confidence.view(-1, num_classes), labels[mask], reduction='sum')
+
+        pos_mask = labels > 0
+        predicted_locations = predicted_locations[pos_mask, :].view(-1, 4)
+        gt_locations = gt_locations[pos_mask, :].view(-1, 4)
+        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
+        num_pos = gt_locations.size(0)
+        return smooth_l1_loss / num_pos, classification_loss / num_pos
